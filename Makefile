@@ -2,4 +2,4 @@
 
 local:
 	npm install
-	npm run dev
+	VITE_SUPABASE_URL= VITE_SUPABASE_ANON_KEY= npm run dev
