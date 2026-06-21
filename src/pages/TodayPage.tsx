@@ -327,27 +327,27 @@ export const TodayPage = () => {
   return (
     <div className="page">
       <section className="card">
-        <div className="row between">
-          <div>
-            <p className="muted">Phase</p>
+        <div className="stat-row">
+          <div className="stat-block">
+            <p className="section-label">Phase</p>
             <h2>{summary.phase.replace('_', ' ')}</h2>
           </div>
-          <div className="right">
-            <p className="muted">Days to target</p>
-            <h2>{summary.daysToTarget}</h2>
-            <small>{TARGET_DATE}</small>
+          <div className="stat-block right">
+            <p className="section-label">Days to target</p>
+            <span className="stat-value">{summary.daysToTarget}</span>
+            <small className="muted">{TARGET_DATE}</small>
           </div>
         </div>
       </section>
 
       <section className="card">
-        <p className="muted">Select day type</p>
+        <p className="section-label">Select day type</p>
         <div className="chip-row">
           {(['green', 'yellow', 'red', 'off'] as const).map((type) => (
             <button
               key={type}
               type="button"
-              className={`chip ${dayType === type ? 'active' : ''}`}
+              className={`chip chip--${type} ${dayType === type ? 'active' : ''}`}
               onClick={() => setDayType(today, type)}
             >
               {type}
@@ -358,10 +358,14 @@ export const TodayPage = () => {
           Mental maths: {dayProtocol.mentalMathSeconds / 60}m. Questions today: {summary.plan.totalTasks}.
           Completed: {summary.completedAttempts.length}/{summary.plan.totalTasks}
         </p>
+        <div className={`protocol-indicator ${summary.protocolCompleted ? 'protocol-indicator--done' : ''}`}>
+          <span className="protocol-indicator__dot" />
+          Protocol {summary.protocolCompleted ? 'complete' : 'in progress'}
+        </div>
       </section>
 
       <section className="card">
-        <p className="muted">Daily readiness</p>
+        <p className="section-label">Daily readiness</p>
         <div className="metric">
           <span>Mental energy</span>
           <div className="chip-row">
@@ -414,7 +418,7 @@ export const TodayPage = () => {
 
       {dayType !== 'off' && (
         <section className="card">
-          <p className="muted">Mental maths</p>
+          <p className="section-label">Mental maths</p>
           <div className="timer">{formatClock(mentalRemaining)}</div>
           <div className="row gap">
             <button type="button" className="primary" onClick={beginMentalMath} disabled={Boolean(mentalRunning)}>
@@ -429,7 +433,7 @@ export const TodayPage = () => {
 
       {(dayType === 'green' || dayType === 'yellow') && (
         <section className="card">
-          <p className="muted">Recommended next question</p>
+          <p className="section-label">Recommended next question</p>
           <h3>{summary.recommendation}</h3>
           <a href="https://quantquestions.io/problems" target="_blank" rel="noreferrer" className="link-btn">
             Open QuantQuestions
@@ -501,7 +505,7 @@ export const TodayPage = () => {
 
       {attemptTimer && (
         <section className="card emphasis">
-          <p className="muted">Attempt timer</p>
+          <p className="section-label">Attempt timer</p>
           <div className="timer">{formatClock(attemptRemaining)}</div>
           <div className="row gap">
             <button type="button" className="secondary" onClick={pauseAttempt}>
@@ -524,7 +528,7 @@ export const TodayPage = () => {
               Time is up. Stop solving now, review the solution on QuantQuestions, then complete this 1-minute postmortem.
             </div>
           )}
-          <p className="muted">Post-attempt (short)</p>
+          <p className="section-label">Post-attempt (short)</p>
           <label className="input-label">
             Correct on first try?
             <select value={String(firstTryCorrect)} onChange={(event) => setFirstTryCorrect(event.target.value === 'true')}>
@@ -581,8 +585,11 @@ export const TodayPage = () => {
       )}
 
       <section className="card">
-        <p className="muted">Today status</p>
-        <p>Protocol completed: {summary.protocolCompleted ? 'Yes' : 'Not yet'}</p>
+        <p className="section-label">Today status</p>
+        <div className={`protocol-indicator ${summary.protocolCompleted ? 'protocol-indicator--done' : ''}`}>
+          <span className="protocol-indicator__dot" />
+          {summary.protocolCompleted ? 'Protocol completed' : 'Protocol not yet complete'}
+        </div>
       </section>
     </div>
   )

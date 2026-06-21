@@ -2,6 +2,17 @@ import { useMemo } from 'react'
 import { forwardToNextEligibleDate } from '../domain/reviews'
 import { useAppStore, useTodayDate } from '../state/AppStore'
 
+const ReviewStepIndicator = ({ currentStep }: { currentStep: number }) => (
+  <span className="review-step">
+    <span className="review-step__dots" aria-hidden="true">
+      {[0, 1, 2, 3].map((step) => (
+        <span key={step} className={`review-step__dot ${step <= currentStep ? 'review-step__dot--filled' : ''}`} />
+      ))}
+    </span>
+    Step {currentStep + 1} of 4
+  </span>
+)
+
 export const ReviewsPage = () => {
   const { state } = useAppStore()
   const today = useTodayDate()
@@ -40,58 +51,68 @@ export const ReviewsPage = () => {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 10)
 
+  const nextDue = due[0] ?? null
+
   return (
     <div className="page">
-      <section className="card">
-        <p className="muted">Next due review</p>
-        {due[0] ? (
+      <section className={`card card--hero ${nextDue ? 'card--urgent' : ''}`}>
+        <p className="section-label">Next due review</p>
+        {nextDue ? (
           <div>
-            <h3>{due[0].sequence.parsedQuestionLabel}</h3>
+            <span className="urgency-badge urgency-badge--due">Due now</span>
+            <h3>{nextDue.sequence.parsedQuestionLabel}</h3>
             <p className="hint">
-              {due[0].sequence.topicLabelSnapshot} · {due[0].sequence.originalDifficulty} · due {due[0].effectiveDueDate}
+              {nextDue.sequence.topicLabelSnapshot} · {nextDue.sequence.originalDifficulty} · due{' '}
+              {nextDue.effectiveDueDate}
             </p>
+            <ReviewStepIndicator currentStep={nextDue.sequence.currentStep} />
           </div>
         ) : (
-          <p>No review due today.</p>
+          <p className="empty-state">No review due today.</p>
         )}
       </section>
 
       <section className="card">
-        <p className="muted">Due today</p>
-        {due.length === 0 && <p>None</p>}
+        <p className="section-label">Due today</p>
+        {due.length === 0 && <p className="empty-state">None</p>}
         {due.map((entry) => (
           <div key={entry.sequence.id} className="list-item">
-            <strong>{entry.sequence.parsedQuestionLabel}</strong>
-            <span>{entry.sequence.topicLabelSnapshot}</span>
-            <span>Step {entry.sequence.currentStep + 1} of 4</span>
+            <div className="row between gap">
+              <strong>{entry.sequence.parsedQuestionLabel}</strong>
+              <span className="urgency-badge urgency-badge--due">Due</span>
+            </div>
+            <span className="muted">{entry.sequence.topicLabelSnapshot}</span>
+            <ReviewStepIndicator currentStep={entry.sequence.currentStep} />
           </div>
         ))}
       </section>
 
       <section className="card">
-        <p className="muted">Upcoming</p>
-        {upcoming.length === 0 && <p>None</p>}
+        <p className="section-label">Upcoming</p>
+        {upcoming.length === 0 && <p className="empty-state">None</p>}
         {upcoming.slice(0, 20).map((entry) => (
           <div key={entry.sequence.id} className="list-item">
-            <strong>{entry.sequence.parsedQuestionLabel}</strong>
-            <span>{entry.sequence.topicLabelSnapshot}</span>
-            <span>{entry.effectiveDueDate}</span>
+            <div className="row between gap">
+              <strong>{entry.sequence.parsedQuestionLabel}</strong>
+              <span className="urgency-badge urgency-badge--upcoming">{entry.effectiveDueDate}</span>
+            </div>
+            <span className="muted">{entry.sequence.topicLabelSnapshot}</span>
+            <ReviewStepIndicator currentStep={entry.sequence.currentStep} />
           </div>
         ))}
       </section>
 
       <section className="card">
-        <p className="muted">Completed sequences</p>
-        {completed.length === 0 && <p>None yet</p>}
+        <p className="section-label">Completed sequences</p>
+        {completed.length === 0 && <p className="empty-state">None yet</p>}
         {completed.map((sequence) => (
           <div key={sequence.id} className="list-item">
             <strong>{sequence.parsedQuestionLabel}</strong>
-            <span>{sequence.topicLabelSnapshot}</span>
-            <span>Completed</span>
+            <span className="muted">{sequence.topicLabelSnapshot}</span>
+            <span className="review-step">Completed</span>
           </div>
         ))}
       </section>
     </div>
   )
 }
-

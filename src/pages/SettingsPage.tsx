@@ -2,6 +2,34 @@ import { useState } from 'react'
 import { TARGET_DATE } from '../constants'
 import { useAppStore } from '../state/AppStore'
 
+type TimerSaveState = 'idle' | 'success' | 'error'
+
+const validateTimerMinutes = (value: string): string | null => {
+  const trimmed = value.trim()
+  if (trimmed === '') {
+    return 'Required'
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return 'Must be a whole number'
+  }
+  const num = Number(trimmed)
+  if (num < 1 || num > 180) {
+    return 'Must be between 1 and 180 minutes'
+  }
+  return null
+}
+
+const validateTopicName = (value: string): string | null => {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) {
+    return 'Topic name is required'
+  }
+  if (trimmed.length > 80) {
+    return 'Topic name must be 80 characters or fewer'
+  }
+  return null
+}
+
 export const SettingsPage = () => {
   const { state, updateSettings, addTopic, reorderTopics } = useAppStore()
   if (!state) {
@@ -12,22 +40,62 @@ export const SettingsPage = () => {
   const [mediumMinutes, setMediumMinutes] = useState(String(Math.floor(state.settings.mediumSeconds / 60)))
   const [hardMinutes, setHardMinutes] = useState(String(Math.floor(state.settings.hardSeconds / 60)))
   const [newTopic, setNewTopic] = useState('')
+  const [timerSaveState, setTimerSaveState] = useState<TimerSaveState>('idle')
+  const [timerErrors, setTimerErrors] = useState<{ easy?: string; medium?: string; hard?: string }>({})
+  const [timerFeedback, setTimerFeedback] = useState<string | null>(null)
+  const [topicError, setTopicError] = useState<string | null>(null)
 
   const topics = [...state.topics].sort((a, b) => a.orderIndex - b.orderIndex)
 
   const saveTimers = () => {
-    const easy = Number(easyMinutes)
-    const medium = Number(mediumMinutes)
-    const hard = Number(hardMinutes)
-    if (!Number.isFinite(easy) || !Number.isFinite(medium) || !Number.isFinite(hard)) {
-      throw new Error('Timer values must be numbers')
+    const easyErr = validateTimerMinutes(easyMinutes)
+    const mediumErr = validateTimerMinutes(mediumMinutes)
+    const hardErr = validateTimerMinutes(hardMinutes)
+
+    if (easyErr || mediumErr || hardErr) {
+      const errors: { easy?: string; medium?: string; hard?: string } = {}
+      if (easyErr) errors.easy = easyErr
+      if (mediumErr) errors.medium = mediumErr
+      if (hardErr) errors.hard = hardErr
+      setTimerErrors(errors)
+      setTimerSaveState('error')
+      setTimerFeedback('Fix the errors above before saving.')
+      return
     }
-    updateSettings({
-      ...state.settings,
-      easySeconds: Math.round(easy * 60),
-      mediumSeconds: Math.round(medium * 60),
-      hardSeconds: Math.round(hard * 60),
-    })
+
+    setTimerErrors({})
+    try {
+      updateSettings({
+        ...state.settings,
+        easySeconds: Number(easyMinutes) * 60,
+        mediumSeconds: Number(mediumMinutes) * 60,
+        hardSeconds: Number(hardMinutes) * 60,
+      })
+      setTimerSaveState('success')
+      setTimerFeedback('Timer settings saved.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save timer settings.'
+      setTimerSaveState('error')
+      setTimerFeedback(message)
+    }
+  }
+
+  const handleAddTopic = () => {
+    const validationError = validateTopicName(newTopic)
+    if (validationError) {
+      setTopicError(validationError)
+      return
+    }
+
+    const trimmed = newTopic.trim()
+    try {
+      addTopic(trimmed)
+      setNewTopic('')
+      setTopicError(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not add topic.'
+      setTopicError(message)
+    }
   }
 
   const move = (index: number, direction: -1 | 1) => {
@@ -49,31 +117,63 @@ export const SettingsPage = () => {
   return (
     <div className="page">
       <section className="card">
-        <p className="muted">Target date</p>
+        <p className="section-label">Target date</p>
         <h3>{TARGET_DATE}</h3>
       </section>
 
       <section className="card">
-        <p className="muted">Attempt timer durations (minutes)</p>
-        <label className="input-label">
+        <p className="section-label">Attempt timer durations (minutes)</p>
+        <label className={`input-label ${timerErrors.easy ? 'input-label--error' : ''}`}>
           Easy
-          <input value={easyMinutes} onChange={(event) => setEasyMinutes(event.target.value)} inputMode="numeric" />
+          <input
+            value={easyMinutes}
+            onChange={(event) => {
+              setEasyMinutes(event.target.value)
+              setTimerSaveState('idle')
+              setTimerFeedback(null)
+            }}
+            inputMode="numeric"
+          />
+          {timerErrors.easy && <p className="input-error">{timerErrors.easy}</p>}
         </label>
-        <label className="input-label">
+        <label className={`input-label ${timerErrors.medium ? 'input-label--error' : ''}`}>
           Medium
-          <input value={mediumMinutes} onChange={(event) => setMediumMinutes(event.target.value)} inputMode="numeric" />
+          <input
+            value={mediumMinutes}
+            onChange={(event) => {
+              setMediumMinutes(event.target.value)
+              setTimerSaveState('idle')
+              setTimerFeedback(null)
+            }}
+            inputMode="numeric"
+          />
+          {timerErrors.medium && <p className="input-error">{timerErrors.medium}</p>}
         </label>
-        <label className="input-label">
+        <label className={`input-label ${timerErrors.hard ? 'input-label--error' : ''}`}>
           Hard
-          <input value={hardMinutes} onChange={(event) => setHardMinutes(event.target.value)} inputMode="numeric" />
+          <input
+            value={hardMinutes}
+            onChange={(event) => {
+              setHardMinutes(event.target.value)
+              setTimerSaveState('idle')
+              setTimerFeedback(null)
+            }}
+            inputMode="numeric"
+          />
+          {timerErrors.hard && <p className="input-error">{timerErrors.hard}</p>}
         </label>
         <button type="button" className="primary" onClick={saveTimers}>
           Save timer settings
         </button>
+        {timerFeedback && (
+          <p className={`status-message ${timerSaveState === 'error' ? 'error' : timerSaveState === 'success' ? 'success' : ''}`}>
+            {timerFeedback}
+          </p>
+        )}
       </section>
 
       <section className="card">
-        <p className="muted">Topics and order</p>
+        <p className="section-label">Topics and order</p>
         {topics.map((topic, index) => (
           <div key={topic.id} className="list-item row between">
             <div>
@@ -90,22 +190,23 @@ export const SettingsPage = () => {
             </div>
           </div>
         ))}
-        <label className="input-label">
+        <label className={`input-label ${topicError ? 'input-label--error' : ''}`}>
           Add topic
-          <input value={newTopic} onChange={(event) => setNewTopic(event.target.value)} placeholder="Topic name" />
+          <input
+            value={newTopic}
+            onChange={(event) => {
+              setNewTopic(event.target.value)
+              setTopicError(null)
+            }}
+            placeholder="Topic name"
+            maxLength={80}
+          />
+          {topicError && <p className="input-error">{topicError}</p>}
         </label>
-        <button
-          type="button"
-          className="primary"
-          onClick={() => {
-            addTopic(newTopic)
-            setNewTopic('')
-          }}
-        >
+        <button type="button" className="primary" onClick={handleAddTopic}>
           Add topic
         </button>
       </section>
     </div>
   )
 }
-
