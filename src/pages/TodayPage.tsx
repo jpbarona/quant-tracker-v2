@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DAY_PROTOCOLS, TARGET_DATE } from '../constants'
 import { getMentalMathSecondsForDayType } from '../domain/dailyPlan'
+import { forwardToNextEligibleDate } from '../domain/reviews'
 import { parseQuestionLabel } from '../domain/urlParser'
 import { titleCaseLabel } from '../lib/labels'
 import {
@@ -94,6 +95,22 @@ export const TodayPage = () => {
   const dayProtocol = DAY_PROTOCOLS[dayType]
 
   const dueReview = summary.plan.reviews[0] ?? null
+
+  const { overdueReviews, dueTodayReviews } = useMemo(() => {
+    const entries = state.reviewSequences
+      .filter((sequence) => sequence.status === 'active')
+      .map((sequence) => ({
+        sequence,
+        effectiveDueDate: forwardToNextEligibleDate(sequence.dueDate, state.dayLogs),
+      }))
+      .filter((entry) => entry.effectiveDueDate <= today)
+      .sort((a, b) => a.effectiveDueDate.localeCompare(b.effectiveDueDate))
+
+    return {
+      overdueReviews: entries.filter((entry) => entry.effectiveDueDate < today),
+      dueTodayReviews: entries.filter((entry) => entry.effectiveDueDate === today),
+    }
+  }, [state.dayLogs, state.reviewSequences, today])
 
   const duplicateExists = useMemo(() => {
     const trimmed = urlInput.trim()
@@ -504,6 +521,46 @@ export const TodayPage = () => {
             <button type="button" className="secondary" onClick={completeMentalMathEarly} disabled={!mentalTimer}>
               Mark complete
             </button>
+          </div>
+        </section>
+      )}
+
+      {dayType !== 'off' && (
+        <section className="card">
+          <p className="section-label">Pending reviews</p>
+
+          <div className="card-stack">
+            <p className="section-label">Overdue</p>
+            {overdueReviews.length === 0 ? (
+              <p className="empty-state">You&apos;re caught up — no overdue reviews.</p>
+            ) : (
+              overdueReviews.map((entry) => (
+                <div key={entry.sequence.id} className="list-item">
+                  <a href={entry.sequence.sourceUrl} target="_blank" rel="noreferrer" className="link-btn">
+                    {entry.sequence.parsedQuestionLabel}
+                  </a>
+                  <span className="muted">
+                    {entry.sequence.topicLabelSnapshot} · {entry.sequence.originalDifficulty} · due {entry.effectiveDueDate}
+                  </span>
+                </div>
+              ))
+            )}
+
+            <p className="section-label">Due today</p>
+            {dueTodayReviews.length === 0 ? (
+              <p className="empty-state">None due today.</p>
+            ) : (
+              dueTodayReviews.map((entry) => (
+                <div key={entry.sequence.id} className="list-item">
+                  <a href={entry.sequence.sourceUrl} target="_blank" rel="noreferrer" className="link-btn">
+                    {entry.sequence.parsedQuestionLabel}
+                  </a>
+                  <span className="muted">
+                    {entry.sequence.topicLabelSnapshot} · {entry.sequence.originalDifficulty}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </section>
       )}
