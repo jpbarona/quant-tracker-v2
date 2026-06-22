@@ -81,6 +81,7 @@ export const TodayPage = () => {
   const [sleepQuality, setSleepQuality] = useState<ReadinessScore>(summary.readiness?.sleepQuality ?? 3)
   const [readinessSaveState, setReadinessSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
   const [readinessFeedback, setReadinessFeedback] = useState<string | null>(null)
+  const [attemptError, setAttemptError] = useState<string | null>(null)
 
   const dayType = summary.dayType
   const dayProtocol = DAY_PROTOCOLS[dayType]
@@ -176,6 +177,10 @@ export const TodayPage = () => {
     setReadinessFeedback(null)
   }, [energy, stress, sleepQuality])
 
+  useEffect(() => {
+    setAttemptError(null)
+  }, [urlInput, attemptMode, duplicateAcknowledged, topicId, difficulty])
+
   const handleSaveReadiness = () => {
     setReadinessSaveState('saving')
     setReadinessFeedback('Saving readiness...')
@@ -218,21 +223,55 @@ export const TodayPage = () => {
     setMentalElapsed(0)
   }
 
+  const trimmedUrl = urlInput.trim()
+  const needsTopic = attemptMode !== 'mixed'
+  const attemptBlockedReason = (() => {
+    if (attemptTimer) {
+      return 'A timed attempt is already running.'
+    }
+    if (!trimmedUrl) {
+      return 'Enter a QuantQuestions URL to start.'
+    }
+    if (attemptMode === 'review' && !dueReview) {
+      return 'No review is due today. Switch to New or Mixed mode.'
+    }
+    if (duplicateExists && !duplicateAcknowledged) {
+      return 'Confirm re-attempt for this URL below.'
+    }
+    if (needsTopic && !topicId) {
+      return 'Select a topic to start.'
+    }
+    return null
+  })()
+
   const beginAttempt = () => {
     if (attemptTimer) {
       return
     }
-    const trimmed = urlInput.trim()
-    if (!trimmed) {
-      throw new Error('QuantQuestions URL is required')
+    if (!trimmedUrl) {
+      setAttemptError('Enter a QuantQuestions URL before starting.')
+      return
     }
     if (attemptMode === 'review' && !dueReview) {
-      throw new Error('No review selected')
+      setAttemptError('No review is due today. Switch to New or Mixed mode.')
+      return
     }
     if (duplicateExists && !duplicateAcknowledged) {
-      throw new Error('Duplicate URL detected. Confirm re-attempt and try again.')
+      setAttemptError('This URL was attempted before. Confirm re-attempt below.')
+      return
     }
-    parseQuestionLabel(trimmed)
+    if (needsTopic && !topicId) {
+      setAttemptError('Select a topic before starting.')
+      return
+    }
+    try {
+      parseQuestionLabel(trimmedUrl)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'URL could not be parsed.'
+      setAttemptError(message)
+      return
+    }
+    setAttemptError(null)
     const now = nowMs()
     setAttemptTimer({
       startedAtMs: now,
@@ -242,7 +281,7 @@ export const TodayPage = () => {
       pausedSeconds: 0,
       pauseStartedAtMs: null,
       mode: attemptMode,
-      sourceUrl: trimmed,
+      sourceUrl: trimmedUrl,
       topicId: attemptMode === 'mixed' ? null : topicId,
       difficulty,
       reviewSequenceId: attemptMode === 'review' ? dueReview?.id ?? null : null,
@@ -398,7 +437,7 @@ export const TodayPage = () => {
         </div>
         <button
           type="button"
-          className="primary"
+          className="primary btn-block"
           onClick={handleSaveReadiness}
           disabled={readinessSaveState === 'saving'}
           aria-busy={readinessSaveState === 'saving'}
@@ -420,7 +459,7 @@ export const TodayPage = () => {
         <section className="card">
           <p className="section-label">Mental maths</p>
           <div className="timer">{formatClock(mentalRemaining)}</div>
-          <div className="row gap">
+          <div className="action-row">
             <button type="button" className="primary" onClick={beginMentalMath} disabled={Boolean(mentalRunning)}>
               Start
             </button>
@@ -497,9 +536,23 @@ export const TodayPage = () => {
             </select>
           </label>
           <p className="hint">Timer: {Math.floor(expectedTimerSeconds / 60)} minutes</p>
-          <button type="button" className="primary" onClick={beginAttempt} disabled={Boolean(attemptTimer)}>
+          {attemptBlockedReason && !attemptError && (
+            <p id="attempt-hint" className="hint">{attemptBlockedReason}</p>
+          )}
+          <button
+            type="button"
+            className="primary btn-block"
+            onClick={beginAttempt}
+            disabled={Boolean(attemptTimer)}
+            aria-describedby={attemptError ? 'attempt-error' : attemptBlockedReason ? 'attempt-hint' : undefined}
+          >
             Start timed attempt
           </button>
+          {attemptError && (
+            <p id="attempt-error" className="status-message error" role="alert">
+              {attemptError}
+            </p>
+          )}
         </section>
       )}
 
@@ -507,7 +560,7 @@ export const TodayPage = () => {
         <section className="card emphasis">
           <p className="section-label">Attempt timer</p>
           <div className="timer">{formatClock(attemptRemaining)}</div>
-          <div className="row gap">
+          <div className="action-row">
             <button type="button" className="secondary" onClick={pauseAttempt}>
               {attemptTimer.pauseStartedAtMs ? 'Resume' : 'Pause'}
             </button>
@@ -578,7 +631,7 @@ export const TodayPage = () => {
               maxLength={220}
             />
           </label>
-          <button type="button" className="primary" onClick={submitPostmortem}>
+          <button type="button" className="primary btn-block" onClick={submitPostmortem}>
             Save attempt
           </button>
         </section>

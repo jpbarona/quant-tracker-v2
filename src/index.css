@@ -198,7 +198,7 @@ body::before {
 
 .page-container {
   padding: 0.75rem;
-  padding-bottom: 5.75rem;
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0));
 }
 
 .page {
@@ -225,6 +225,7 @@ body::before {
   height: 2px;
   background: linear-gradient(90deg, var(--accent), var(--data));
   opacity: 0.55;
+  pointer-events: none;
 }
 
 .card--hero::before {
@@ -487,7 +488,7 @@ button:disabled {
   justify-content: center;
   text-decoration: none;
   font-weight: 600;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
 }
 
 .primary {
@@ -497,6 +498,28 @@ button:disabled {
 
 .primary:hover:not(:disabled) {
   background: var(--accent-strong);
+}
+
+.primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-block {
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+.action-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.action-row > .primary,
+.action-row > .secondary,
+.action-row > .danger {
+  width: 100%;
 }
 
 .secondary {
@@ -909,6 +932,12 @@ input::placeholder {
     border-top-color: var(--accent);
     opacity: 0.7;
   }
+
+  .primary:active:not(:disabled),
+  .secondary:active:not(:disabled),
+  .danger:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 @keyframes spin {
@@ -919,7 +948,7 @@ input::placeholder {
 
 @media (min-width: 480px) {
   .page-container {
-    padding: 1rem 1.25rem 6rem;
+    padding: 1rem 1.25rem calc(6.75rem + env(safe-area-inset-bottom, 0));
   }
 
   .top-bar {
@@ -928,5 +957,18 @@ input::placeholder {
 
   .timer {
     font-size: 3.25rem;
+  }
+
+  .action-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .action-row > .primary,
+  .action-row > .secondary,
+  .action-row > .danger {
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 7.5rem;
   }
 }
