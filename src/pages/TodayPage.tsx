@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DAY_PROTOCOLS, TARGET_DATE } from '../constants'
+import { getAttemptStartError, isDifficulty, validateAttemptStart } from '../domain/attemptStart'
 import { getMentalMathSecondsForDayType } from '../domain/dailyPlan'
-import { forwardToNextEligibleDate } from '../domain/reviews'
-import { parseQuestionLabel } from '../domain/urlParser'
-import { titleCaseLabel } from '../lib/labels'
+import { validateMentalMathLog, type MentalMathLogInput } from '../domain/mentalMathSession'
+import { groupPendingReviews } from '../domain/pendingReviews'
+import { safeTitleCaseLabel } from '../lib/labels'
+import {
+  computeActiveElapsedSeconds,
+  computePauseIncrementSeconds,
+  computeRemainingSeconds,
+  formatClock,
+} from '../lib/timers'
 import {
   getTodaySummary,
   useAppStore,
@@ -22,12 +29,7 @@ const divergenceOptions: Array<{ key: DivergenceReason; label: string }> = [
   { key: 'time_management', label: 'Time management' },
 ]
 
-const formatClock = (total: number): string => {
-  const safe = Math.max(0, Math.floor(total))
-  const minutes = String(Math.floor(safe / 60)).padStart(2, '0')
-  const seconds = String(safe % 60).padStart(2, '0')
-  return `${minutes}:${seconds}`
-}
+const nowMs = (): number => new Date().getTime()
 
 interface MentalTimer {
   startedAtMs: number
@@ -59,8 +61,6 @@ interface PendingPostmortem {
   abandoned: boolean
 }
 
-const nowMs = (): number => new Date().getTime()
-
 export const TodayPage = () => {
   const today = useTodayDate()
   const { state, setDayType, setReadiness, logMentalMath, saveAttempt } = useAppStore()
@@ -90,27 +90,40 @@ export const TodayPage = () => {
   const [readinessSaveState, setReadinessSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
   const [readinessFeedback, setReadinessFeedback] = useState<string | null>(null)
   const [attemptError, setAttemptError] = useState<string | null>(null)
+  const [mentalMathError, setMentalMathError] = useState<string | null>(null)
+  const [postmortemError, setPostmortemError] = useState<string | null>(null)
 
   const dayType = summary.dayType
   const dayProtocol = DAY_PROTOCOLS[dayType]
 
   const dueReview = summary.plan.reviews[0] ?? null
+  const topicIds = useMemo(() => state.topics.map((topic) => topic.id), [state.topics])
 
-  const { overdueReviews, dueTodayReviews } = useMemo(() => {
-    const entries = state.reviewSequences
-      .filter((sequence) => sequence.status === 'active')
-      .map((sequence) => ({
-        sequence,
-        effectiveDueDate: forwardToNextEligibleDate(sequence.dueDate, state.dayLogs),
-      }))
-      .filter((entry) => entry.effectiveDueDate <= today)
-      .sort((a, b) => a.effectiveDueDate.localeCompare(b.effectiveDueDate))
-
-    return {
-      overdueReviews: entries.filter((entry) => entry.effectiveDueDate < today),
-      dueTodayReviews: entries.filter((entry) => entry.effectiveDueDate === today),
+  const pendingReviews = useMemo(() => {
+    try {
+      return {
+        ok: true as const,
+        grouped: groupPendingReviews(state.reviewSequences, state.dayLogs, today),
+      }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Could not load pending reviews.',
+      }
     }
   }, [state.dayLogs, state.reviewSequences, today])
+
+  const overdueReviews = pendingReviews.ok ? pendingReviews.grouped.overdue : []
+  const dueTodayReviews = pendingReviews.ok ? pendingReviews.grouped.dueToday : []
+  const reviewsWarning = (() => {
+    if (!pendingReviews.ok) {
+      return pendingReviews.message
+    }
+    if (pendingReviews.grouped.skipped.length === 0) {
+      return null
+    }
+    return `${pendingReviews.grouped.skipped.length} review(s) could not be loaded. Open the Reviews tab or check your data.`
+  })()
 
   const duplicateExists = useMemo(() => {
     const trimmed = urlInput.trim()
@@ -130,27 +143,38 @@ export const TodayPage = () => {
     return state.settings.hardSeconds
   })()
 
+  const recordMentalMath = (input: MentalMathLogInput) => {
+    try {
+      validateMentalMathLog(input)
+      logMentalMath(input)
+      setMentalMathError(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save mental maths session.'
+      setMentalMathError(message)
+    }
+  }
+
   const mentalScheduledSeconds = getMentalMathSecondsForDayType(dayType)
   const mentalRemaining = (() => {
     if (!mentalTimer) {
       return mentalScheduledSeconds
     }
-    const now = nowEpochMs
-    const activeElapsed = mentalTimer.pauseStartedAtMs
-      ? Math.floor((mentalTimer.pauseStartedAtMs - mentalTimer.startedAtMs) / 1000) - mentalTimer.pausedSeconds
-      : Math.floor((now - mentalTimer.startedAtMs) / 1000) - mentalTimer.pausedSeconds
-    return Math.max(0, mentalScheduledSeconds - activeElapsed)
+    try {
+      return computeRemainingSeconds(mentalScheduledSeconds, mentalTimer, nowEpochMs)
+    } catch {
+      return 0
+    }
   })()
 
   const attemptRemaining = (() => {
     if (!attemptTimer) {
       return 0
     }
-    const now = nowEpochMs
-    const activeElapsed = attemptTimer.pauseStartedAtMs
-      ? Math.floor((attemptTimer.pauseStartedAtMs - attemptTimer.startedAtMs) / 1000) - attemptTimer.pausedSeconds
-      : Math.floor((now - attemptTimer.startedAtMs) / 1000) - attemptTimer.pausedSeconds
-    return Math.max(0, attemptTimer.scheduledSeconds - activeElapsed)
+    try {
+      return computeRemainingSeconds(attemptTimer.scheduledSeconds, attemptTimer, nowEpochMs)
+    } catch {
+      return 0
+    }
   })()
 
   useEffect(() => {
@@ -167,18 +191,24 @@ export const TodayPage = () => {
     if (!mentalTimer || mentalTimer.pauseStartedAtMs) {
       return
     }
-    const elapsed = Math.floor((nowEpochMs - mentalTimer.startedAtMs) / 1000) - mentalTimer.pausedSeconds
-    if (elapsed >= mentalScheduledSeconds) {
-      const completedAt = new Date().toISOString()
-      logMentalMath({
-        date: today,
-        dayType,
-        scheduledSeconds: mentalScheduledSeconds,
-        elapsedSeconds: mentalScheduledSeconds,
-        completedFullDuration: true,
-        startedAt: mentalTimer.startedAtIso,
-        completedAt,
-      })
+    try {
+      const elapsed = computeActiveElapsedSeconds(mentalTimer, nowEpochMs)
+      if (elapsed >= mentalScheduledSeconds) {
+        const completedAt = new Date().toISOString()
+        recordMentalMath({
+          date: today,
+          dayType,
+          scheduledSeconds: mentalScheduledSeconds,
+          elapsedSeconds: mentalScheduledSeconds,
+          completedFullDuration: true,
+          startedAt: mentalTimer.startedAtIso,
+          completedAt,
+        })
+        setMentalTimer(null)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Mental maths timer is in an invalid state.'
+      setMentalMathError(message)
       setMentalTimer(null)
     }
   }, [dayType, logMentalMath, mentalTimer, mentalScheduledSeconds, nowEpochMs, today])
@@ -187,16 +217,22 @@ export const TodayPage = () => {
     if (!attemptTimer || attemptTimer.pauseStartedAtMs) {
       return
     }
-    const elapsed = Math.floor((nowEpochMs - attemptTimer.startedAtMs) / 1000) - attemptTimer.pausedSeconds
-    if (elapsed >= attemptTimer.scheduledSeconds) {
-      setPostmortem({
-        timer: attemptTimer,
-        completedAtIso: new Date().toISOString(),
-        elapsedSeconds: attemptTimer.scheduledSeconds,
-        pausedSeconds: attemptTimer.pausedSeconds,
-        timerExpired: true,
-        abandoned: false,
-      })
+    try {
+      const elapsed = computeActiveElapsedSeconds(attemptTimer, nowEpochMs)
+      if (elapsed >= attemptTimer.scheduledSeconds) {
+        setPostmortem({
+          timer: attemptTimer,
+          completedAtIso: new Date().toISOString(),
+          elapsedSeconds: attemptTimer.scheduledSeconds,
+          pausedSeconds: attemptTimer.pausedSeconds,
+          timerExpired: true,
+          abandoned: false,
+        })
+        setAttemptTimer(null)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Attempt timer is in an invalid state.'
+      setAttemptError(message)
       setAttemptTimer(null)
     }
   }, [attemptTimer, nowEpochMs])
@@ -209,6 +245,10 @@ export const TodayPage = () => {
   useEffect(() => {
     setAttemptError(null)
   }, [urlInput, attemptMode, duplicateAcknowledged, topicId, difficulty])
+
+  useEffect(() => {
+    setPostmortemError(null)
+  }, [firstTryCorrect, usedSolution, divergence, cueMissed, topicId])
 
   const handleSaveReadiness = () => {
     setReadinessSaveState('saving')
@@ -229,6 +269,7 @@ export const TodayPage = () => {
       return
     }
     const now = nowMs()
+    setMentalMathError(null)
     setMentalTimer({
       startedAtMs: now,
       startedAtIso: new Date(now).toISOString(),
@@ -241,85 +282,77 @@ export const TodayPage = () => {
     if (!mentalTimer) {
       return
     }
-    if (mentalTimer.pauseStartedAtMs) {
-      const pausedFor = Math.floor((nowMs() - mentalTimer.pauseStartedAtMs) / 1000)
-      setMentalTimer({
-        ...mentalTimer,
-        pauseStartedAtMs: null,
-        pausedSeconds: mentalTimer.pausedSeconds + pausedFor,
-      })
-      return
+    try {
+      if (mentalTimer.pauseStartedAtMs) {
+        const pausedFor = computePauseIncrementSeconds(mentalTimer.pauseStartedAtMs, nowMs())
+        setMentalTimer({
+          ...mentalTimer,
+          pauseStartedAtMs: null,
+          pausedSeconds: mentalTimer.pausedSeconds + pausedFor,
+        })
+        return
+      }
+      setMentalTimer({ ...mentalTimer, pauseStartedAtMs: nowMs() })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not update mental maths timer.'
+      setMentalMathError(message)
     }
-    setMentalTimer({ ...mentalTimer, pauseStartedAtMs: nowMs() })
   }
 
   const completeMentalMathEarly = () => {
     if (!mentalTimer) {
       return
     }
-    const now = nowMs()
-    const pausedNow = mentalTimer.pauseStartedAtMs
-      ? Math.floor((now - mentalTimer.pauseStartedAtMs) / 1000)
-      : 0
-    const pausedSeconds = mentalTimer.pausedSeconds + pausedNow
-    const elapsed = Math.max(0, Math.floor((now - mentalTimer.startedAtMs) / 1000) - pausedSeconds)
-    logMentalMath({
-      date: today,
-      dayType,
-      scheduledSeconds: mentalScheduledSeconds,
-      elapsedSeconds: elapsed,
-      completedFullDuration: elapsed >= mentalScheduledSeconds,
-      startedAt: mentalTimer.startedAtIso,
-      completedAt: new Date().toISOString(),
-    })
-    setMentalTimer(null)
+    try {
+      const now = nowMs()
+      const pausedNow = mentalTimer.pauseStartedAtMs
+        ? computePauseIncrementSeconds(mentalTimer.pauseStartedAtMs, now)
+        : 0
+      const pausedSeconds = mentalTimer.pausedSeconds + pausedNow
+      const elapsed = computeActiveElapsedSeconds(
+        {
+          startedAtMs: mentalTimer.startedAtMs,
+          pausedSeconds,
+          pauseStartedAtMs: null,
+        },
+        now,
+      )
+      recordMentalMath({
+        date: today,
+        dayType,
+        scheduledSeconds: mentalScheduledSeconds,
+        elapsedSeconds: elapsed,
+        completedFullDuration: elapsed >= mentalScheduledSeconds,
+        startedAt: mentalTimer.startedAtIso,
+        completedAt: new Date().toISOString(),
+      })
+      setMentalTimer(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not complete mental maths session.'
+      setMentalMathError(message)
+    }
   }
 
   const trimmedUrl = urlInput.trim()
   const needsTopic = attemptMode !== 'mixed'
-  const attemptBlockedReason = (() => {
-    if (attemptTimer) {
-      return 'A timed attempt is already running.'
-    }
-    if (!trimmedUrl) {
-      return 'Enter a QuantQuestions URL to start.'
-    }
-    if (attemptMode === 'review' && !dueReview) {
-      return 'No review is due today. Switch to New or Mixed mode.'
-    }
-    if (duplicateExists && !duplicateAcknowledged) {
-      return 'Confirm re-attempt for this URL below.'
-    }
-    if (needsTopic && !topicId) {
-      return 'Select a topic to start.'
-    }
-    return null
-  })()
+  const attemptStartInput = {
+    sourceUrl: trimmedUrl,
+    mode: attemptMode,
+    topicId: needsTopic ? topicId : null,
+    scheduledSeconds: expectedTimerSeconds,
+    dueReviewId: attemptMode === 'review' ? dueReview?.id ?? null : null,
+    duplicateExists,
+    duplicateAcknowledged,
+    topicIds,
+    attemptAlreadyRunning: Boolean(attemptTimer),
+  }
+  const attemptBlockedReason = getAttemptStartError(attemptStartInput)
 
   const beginAttempt = () => {
-    if (attemptTimer) {
-      return
-    }
-    if (!trimmedUrl) {
-      setAttemptError('Enter a QuantQuestions URL before starting.')
-      return
-    }
-    if (attemptMode === 'review' && !dueReview) {
-      setAttemptError('No review is due today. Switch to New or Mixed mode.')
-      return
-    }
-    if (duplicateExists && !duplicateAcknowledged) {
-      setAttemptError('This URL was attempted before. Confirm re-attempt below.')
-      return
-    }
-    if (needsTopic && !topicId) {
-      setAttemptError('Select a topic before starting.')
-      return
-    }
     try {
-      parseQuestionLabel(trimmedUrl)
+      validateAttemptStart(attemptStartInput)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'URL could not be parsed.'
+      const message = error instanceof Error ? error.message : 'Cannot start timed attempt.'
       setAttemptError(message)
       return
     }
@@ -344,39 +377,56 @@ export const TodayPage = () => {
     if (!attemptTimer) {
       return
     }
-    if (attemptTimer.pauseStartedAtMs) {
-      const pausedFor = Math.floor((nowMs() - attemptTimer.pauseStartedAtMs) / 1000)
-      setAttemptTimer({
-        ...attemptTimer,
-        pauseStartedAtMs: null,
-        pausedSeconds: attemptTimer.pausedSeconds + pausedFor,
-      })
-      return
+    try {
+      if (attemptTimer.pauseStartedAtMs) {
+        const pausedFor = computePauseIncrementSeconds(attemptTimer.pauseStartedAtMs, nowMs())
+        setAttemptTimer({
+          ...attemptTimer,
+          pauseStartedAtMs: null,
+          pausedSeconds: attemptTimer.pausedSeconds + pausedFor,
+        })
+        return
+      }
+      setAttemptTimer({ ...attemptTimer, pauseStartedAtMs: nowMs() })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not update attempt timer.'
+      setAttemptError(message)
     }
-    setAttemptTimer({ ...attemptTimer, pauseStartedAtMs: nowMs() })
   }
 
   const finishAttempt = (abandoned: boolean) => {
     if (!attemptTimer) {
       return
     }
-    const now = nowMs()
-    const elapsedGross = Math.floor((now - attemptTimer.startedAtMs) / 1000)
-    const pausedNow = attemptTimer.pauseStartedAtMs
-      ? Math.floor((now - attemptTimer.pauseStartedAtMs) / 1000)
-      : 0
-    const pausedSeconds = attemptTimer.pausedSeconds + pausedNow
-    const elapsedSeconds = Math.max(0, elapsedGross - pausedSeconds)
-    const expired = elapsedSeconds >= attemptTimer.scheduledSeconds
-    setPostmortem({
-      timer: attemptTimer,
-      completedAtIso: new Date(now).toISOString(),
-      elapsedSeconds: Math.min(elapsedSeconds, attemptTimer.scheduledSeconds),
-      pausedSeconds,
-      timerExpired: expired,
-      abandoned,
-    })
-    setAttemptTimer(null)
+    try {
+      const now = nowMs()
+      const pausedNow = attemptTimer.pauseStartedAtMs
+        ? computePauseIncrementSeconds(attemptTimer.pauseStartedAtMs, now)
+        : 0
+      const pausedSeconds = attemptTimer.pausedSeconds + pausedNow
+      const elapsedSeconds = computeActiveElapsedSeconds(
+        {
+          startedAtMs: attemptTimer.startedAtMs,
+          pausedSeconds,
+          pauseStartedAtMs: null,
+        },
+        now,
+      )
+      const expired = elapsedSeconds >= attemptTimer.scheduledSeconds
+      setPostmortem({
+        timer: attemptTimer,
+        completedAtIso: new Date(now).toISOString(),
+        elapsedSeconds: Math.min(elapsedSeconds, attemptTimer.scheduledSeconds),
+        pausedSeconds,
+        timerExpired: expired,
+        abandoned,
+      })
+      setAttemptTimer(null)
+      setAttemptError(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not finish attempt.'
+      setAttemptError(message)
+    }
   }
 
   const submitPostmortem = () => {
@@ -385,7 +435,8 @@ export const TodayPage = () => {
     }
     const actualTopicId =
       postmortem.timer.mode === 'mixed' && !topicId ? null : postmortem.timer.topicId
-    saveAttempt({
+    try {
+      saveAttempt({
       date: today,
       sourceUrl: postmortem.timer.sourceUrl,
       mode: postmortem.timer.mode,
@@ -405,14 +456,19 @@ export const TodayPage = () => {
       usedSolution,
       divergence,
       cueMissed: cueMissed.trim(),
-    })
-    setPostmortem(null)
-    setUrlInput('')
-    setDuplicateAcknowledged(false)
-    setFirstTryCorrect(true)
-    setUsedSolution(false)
-    setDivergence('no_divergence')
-    setCueMissed('')
+      })
+      setPostmortem(null)
+      setPostmortemError(null)
+      setUrlInput('')
+      setDuplicateAcknowledged(false)
+      setFirstTryCorrect(true)
+      setUsedSolution(false)
+      setDivergence('no_divergence')
+      setCueMissed('')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save attempt.'
+      setPostmortemError(message)
+    }
   }
 
   return (
@@ -421,7 +477,7 @@ export const TodayPage = () => {
         <div className="stat-row">
           <div className="stat-block">
             <p className="section-label">Phase</p>
-            <h2>{titleCaseLabel(summary.phase)}</h2>
+            <h2>{safeTitleCaseLabel(summary.phase)}</h2>
           </div>
           <div className="stat-block right">
             <p className="section-label">Days to target</p>
@@ -441,7 +497,7 @@ export const TodayPage = () => {
               className={`chip chip--${type} ${dayType === type ? 'active' : ''}`}
               onClick={() => setDayType(today, type)}
             >
-              {titleCaseLabel(type)}
+              {safeTitleCaseLabel(type)}
             </button>
           ))}
         </div>
@@ -522,6 +578,11 @@ export const TodayPage = () => {
               Mark complete
             </button>
           </div>
+          {mentalMathError && (
+            <p className="status-message error" role="alert">
+              {mentalMathError}
+            </p>
+          )}
         </section>
       )}
 
@@ -562,6 +623,11 @@ export const TodayPage = () => {
               ))
             )}
           </div>
+          {reviewsWarning && (
+            <p className="status-message error" role="alert">
+              {reviewsWarning}
+            </p>
+          )}
         </section>
       )}
 
@@ -627,7 +693,17 @@ export const TodayPage = () => {
 
             <label className="input-label">
               Difficulty
-              <select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>
+              <select
+                value={difficulty}
+                onChange={(event) => {
+                  const next = event.target.value
+                  if (!isDifficulty(next)) {
+                    setAttemptError('Invalid difficulty selected.')
+                    return
+                  }
+                  setDifficulty(next)
+                }}
+              >
                 <option value="easy">Easy</option>
                 <option value="medium">Medium</option>
                 <option value="hard">Hard</option>
@@ -733,6 +809,11 @@ export const TodayPage = () => {
           <button type="button" className="primary btn-block" onClick={submitPostmortem}>
             Save attempt
           </button>
+          {postmortemError && (
+            <p className="status-message error" role="alert">
+              {postmortemError}
+            </p>
+          )}
         </section>
       )}
 
