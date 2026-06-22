@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { DAY_PROTOCOLS, TARGET_DATE } from '../constants'
 import { getMentalMathSecondsForDayType } from '../domain/dailyPlan'
 import { parseQuestionLabel } from '../domain/urlParser'
+import { titleCaseLabel } from '../lib/labels'
 import {
   getTodaySummary,
   useAppStore,
@@ -25,6 +26,13 @@ const formatClock = (total: number): string => {
   const minutes = String(Math.floor(safe / 60)).padStart(2, '0')
   const seconds = String(safe % 60).padStart(2, '0')
   return `${minutes}:${seconds}`
+}
+
+interface MentalTimer {
+  startedAtMs: number
+  startedAtIso: string
+  pausedSeconds: number
+  pauseStartedAtMs: number | null
 }
 
 interface RunningTimer {
@@ -61,8 +69,7 @@ export const TodayPage = () => {
 
   const summary = getTodaySummary(state, today)
 
-  const [mentalRunning, setMentalRunning] = useState<{ startMs: number; startIso: string } | null>(null)
-  const [mentalElapsed, setMentalElapsed] = useState(0)
+  const [mentalTimer, setMentalTimer] = useState<MentalTimer | null>(null)
   const [attemptTimer, setAttemptTimer] = useState<RunningTimer | null>(null)
   const [postmortem, setPostmortem] = useState<PendingPostmortem | null>(null)
   const [urlInput, setUrlInput] = useState('')
@@ -107,9 +114,16 @@ export const TodayPage = () => {
   })()
 
   const mentalScheduledSeconds = getMentalMathSecondsForDayType(dayType)
-  const mentalRemaining = mentalRunning
-    ? Math.max(0, mentalScheduledSeconds - Math.floor((nowEpochMs - mentalRunning.startMs) / 1000))
-    : Math.max(0, mentalScheduledSeconds - mentalElapsed)
+  const mentalRemaining = (() => {
+    if (!mentalTimer) {
+      return mentalScheduledSeconds
+    }
+    const now = nowEpochMs
+    const activeElapsed = mentalTimer.pauseStartedAtMs
+      ? Math.floor((mentalTimer.pauseStartedAtMs - mentalTimer.startedAtMs) / 1000) - mentalTimer.pausedSeconds
+      : Math.floor((now - mentalTimer.startedAtMs) / 1000) - mentalTimer.pausedSeconds
+    return Math.max(0, mentalScheduledSeconds - activeElapsed)
+  })()
 
   const attemptRemaining = (() => {
     if (!attemptTimer) {
@@ -123,21 +137,20 @@ export const TodayPage = () => {
   })()
 
   useEffect(() => {
-    if (!mentalRunning && !attemptTimer) {
+    if (!mentalTimer && !attemptTimer) {
       return
     }
     const handle = window.setInterval(() => {
       setNowEpochMs(nowMs())
     }, 250)
     return () => window.clearInterval(handle)
-  }, [attemptTimer, mentalRunning])
+  }, [attemptTimer, mentalTimer])
 
   useEffect(() => {
-    if (!mentalRunning) {
+    if (!mentalTimer || mentalTimer.pauseStartedAtMs) {
       return
     }
-    const elapsed = Math.floor((nowEpochMs - mentalRunning.startMs) / 1000)
-    setMentalElapsed(elapsed)
+    const elapsed = Math.floor((nowEpochMs - mentalTimer.startedAtMs) / 1000) - mentalTimer.pausedSeconds
     if (elapsed >= mentalScheduledSeconds) {
       const completedAt = new Date().toISOString()
       logMentalMath({
@@ -146,13 +159,12 @@ export const TodayPage = () => {
         scheduledSeconds: mentalScheduledSeconds,
         elapsedSeconds: mentalScheduledSeconds,
         completedFullDuration: true,
-        startedAt: mentalRunning.startIso,
+        startedAt: mentalTimer.startedAtIso,
         completedAt,
       })
-      setMentalRunning(null)
-      setMentalElapsed(0)
+      setMentalTimer(null)
     }
-  }, [dayType, logMentalMath, mentalRunning, mentalScheduledSeconds, nowEpochMs, today])
+  }, [dayType, logMentalMath, mentalTimer, mentalScheduledSeconds, nowEpochMs, today])
 
   useEffect(() => {
     if (!attemptTimer || attemptTimer.pauseStartedAtMs) {
@@ -196,31 +208,54 @@ export const TodayPage = () => {
   }
 
   const beginMentalMath = () => {
-    if (mentalScheduledSeconds === 0) {
+    if (mentalScheduledSeconds === 0 || mentalTimer) {
       return
     }
-    if (!mentalRunning) {
-      setMentalRunning({ startMs: nowMs(), startIso: new Date().toISOString() })
-      setMentalElapsed(0)
+    const now = nowMs()
+    setMentalTimer({
+      startedAtMs: now,
+      startedAtIso: new Date(now).toISOString(),
+      pausedSeconds: 0,
+      pauseStartedAtMs: null,
+    })
+  }
+
+  const pauseMentalMath = () => {
+    if (!mentalTimer) {
+      return
     }
+    if (mentalTimer.pauseStartedAtMs) {
+      const pausedFor = Math.floor((nowMs() - mentalTimer.pauseStartedAtMs) / 1000)
+      setMentalTimer({
+        ...mentalTimer,
+        pauseStartedAtMs: null,
+        pausedSeconds: mentalTimer.pausedSeconds + pausedFor,
+      })
+      return
+    }
+    setMentalTimer({ ...mentalTimer, pauseStartedAtMs: nowMs() })
   }
 
   const completeMentalMathEarly = () => {
-    if (!mentalRunning) {
+    if (!mentalTimer) {
       return
     }
-    const elapsed = Math.floor((nowMs() - mentalRunning.startMs) / 1000)
+    const now = nowMs()
+    const pausedNow = mentalTimer.pauseStartedAtMs
+      ? Math.floor((now - mentalTimer.pauseStartedAtMs) / 1000)
+      : 0
+    const pausedSeconds = mentalTimer.pausedSeconds + pausedNow
+    const elapsed = Math.max(0, Math.floor((now - mentalTimer.startedAtMs) / 1000) - pausedSeconds)
     logMentalMath({
       date: today,
       dayType,
       scheduledSeconds: mentalScheduledSeconds,
       elapsedSeconds: elapsed,
       completedFullDuration: elapsed >= mentalScheduledSeconds,
-      startedAt: mentalRunning.startIso,
+      startedAt: mentalTimer.startedAtIso,
       completedAt: new Date().toISOString(),
     })
-    setMentalRunning(null)
-    setMentalElapsed(0)
+    setMentalTimer(null)
   }
 
   const trimmedUrl = urlInput.trim()
@@ -369,7 +404,7 @@ export const TodayPage = () => {
         <div className="stat-row">
           <div className="stat-block">
             <p className="section-label">Phase</p>
-            <h2>{summary.phase.replace('_', ' ')}</h2>
+            <h2>{titleCaseLabel(summary.phase)}</h2>
           </div>
           <div className="stat-block right">
             <p className="section-label">Days to target</p>
@@ -389,7 +424,7 @@ export const TodayPage = () => {
               className={`chip chip--${type} ${dayType === type ? 'active' : ''}`}
               onClick={() => setDayType(today, type)}
             >
-              {type}
+              {titleCaseLabel(type)}
             </button>
           ))}
         </div>
@@ -460,10 +495,13 @@ export const TodayPage = () => {
           <p className="section-label">Mental maths</p>
           <div className="timer">{formatClock(mentalRemaining)}</div>
           <div className="action-row">
-            <button type="button" className="primary" onClick={beginMentalMath} disabled={Boolean(mentalRunning)}>
+            <button type="button" className="primary" onClick={beginMentalMath} disabled={Boolean(mentalTimer)}>
               Start
             </button>
-            <button type="button" className="secondary" onClick={completeMentalMathEarly} disabled={!mentalRunning}>
+            <button type="button" className="secondary" onClick={pauseMentalMath} disabled={!mentalTimer}>
+              {mentalTimer?.pauseStartedAtMs ? 'Resume' : 'Pause'}
+            </button>
+            <button type="button" className="secondary" onClick={completeMentalMathEarly} disabled={!mentalTimer}>
               Mark complete
             </button>
           </div>
@@ -472,87 +510,91 @@ export const TodayPage = () => {
 
       {(dayType === 'green' || dayType === 'yellow') && (
         <section className="card">
-          <p className="section-label">Recommended next question</p>
-          <h3>{summary.recommendation}</h3>
-          <a href="https://quantquestions.io/problems" target="_blank" rel="noreferrer" className="link-btn">
-            Open QuantQuestions
-          </a>
-
-          <div className="row gap wrap">
-            <button type="button" className={`chip ${attemptMode === 'new' ? 'active' : ''}`} onClick={() => setAttemptMode('new')}>
-              New
-            </button>
-            <button
-              type="button"
-              className={`chip ${attemptMode === 'review' ? 'active' : ''}`}
-              onClick={() => setAttemptMode('review')}
-              disabled={summary.plan.reviews.length === 0}
-            >
-              Review
-            </button>
-            <button type="button" className={`chip ${attemptMode === 'mixed' ? 'active' : ''}`} onClick={() => setAttemptMode('mixed')}>
-              Mixed
-            </button>
-          </div>
-
-          {attemptMode === 'review' && dueReview && (
-            <div className="notice">
-              <strong>Due review:</strong> {dueReview.parsedQuestionLabel} ({dueReview.originalDifficulty})
+          <div className="card-stack">
+            <div className="card-stack__header">
+              <p className="section-label">Recommended next question</p>
+              <h3>{summary.recommendation}</h3>
             </div>
-          )}
+            <a href="https://quantquestions.io/problems" target="_blank" rel="noreferrer" className="link-btn link-btn--block">
+              Open QuantQuestions
+            </a>
 
-          <label className="input-label">
-            QuantQuestions URL
-            <input value={urlInput} onChange={(event) => setUrlInput(event.target.value)} placeholder="https://quantquestions.io/problems/..." />
-          </label>
-          {duplicateExists && (
-            <label className="checkbox">
-              <input type="checkbox" checked={duplicateAcknowledged} onChange={(event) => setDuplicateAcknowledged(event.target.checked)} />
-              I want to re-attempt this existing URL intentionally
-            </label>
-          )}
+            <div className="chip-row">
+              <button type="button" className={`chip ${attemptMode === 'new' ? 'active' : ''}`} onClick={() => setAttemptMode('new')}>
+                New
+              </button>
+              <button
+                type="button"
+                className={`chip ${attemptMode === 'review' ? 'active' : ''}`}
+                onClick={() => setAttemptMode('review')}
+                disabled={summary.plan.reviews.length === 0}
+              >
+                Review
+              </button>
+              <button type="button" className={`chip ${attemptMode === 'mixed' ? 'active' : ''}`} onClick={() => setAttemptMode('mixed')}>
+                Mixed
+              </button>
+            </div>
 
-          {attemptMode !== 'mixed' && (
+            {attemptMode === 'review' && dueReview && (
+              <div className="notice">
+                <strong>Due review:</strong> {dueReview.parsedQuestionLabel} ({dueReview.originalDifficulty})
+              </div>
+            )}
+
             <label className="input-label">
-              Topic
-              <select value={topicId ?? ''} onChange={(event) => setTopicId(event.target.value || null)}>
-                {state.topics
-                  .sort((a, b) => a.orderIndex - b.orderIndex)
-                  .map((topic) => (
-                    <option key={topic.id} value={topic.id}>
-                      {topic.name}
-                    </option>
-                  ))}
+              QuantQuestions URL
+              <input value={urlInput} onChange={(event) => setUrlInput(event.target.value)} placeholder="https://quantquestions.io/problems/..." />
+            </label>
+            {duplicateExists && (
+              <label className="checkbox">
+                <input type="checkbox" checked={duplicateAcknowledged} onChange={(event) => setDuplicateAcknowledged(event.target.checked)} />
+                I want to re-attempt this existing URL intentionally
+              </label>
+            )}
+
+            {attemptMode !== 'mixed' && (
+              <label className="input-label">
+                Topic
+                <select value={topicId ?? ''} onChange={(event) => setTopicId(event.target.value || null)}>
+                  {state.topics
+                    .sort((a, b) => a.orderIndex - b.orderIndex)
+                    .map((topic) => (
+                      <option key={topic.id} value={topic.id}>
+                        {topic.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+
+            <label className="input-label">
+              Difficulty
+              <select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
               </select>
             </label>
-          )}
-
-          <label className="input-label">
-            Difficulty
-            <select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-            </select>
-          </label>
-          <p className="hint">Timer: {Math.floor(expectedTimerSeconds / 60)} minutes</p>
-          {attemptBlockedReason && !attemptError && (
-            <p id="attempt-hint" className="hint">{attemptBlockedReason}</p>
-          )}
-          <button
-            type="button"
-            className="primary btn-block"
-            onClick={beginAttempt}
-            disabled={Boolean(attemptTimer)}
-            aria-describedby={attemptError ? 'attempt-error' : attemptBlockedReason ? 'attempt-hint' : undefined}
-          >
-            Start timed attempt
-          </button>
-          {attemptError && (
-            <p id="attempt-error" className="status-message error" role="alert">
-              {attemptError}
-            </p>
-          )}
+            <p className="hint">Timer: {Math.floor(expectedTimerSeconds / 60)} minutes</p>
+            {attemptBlockedReason && !attemptError && (
+              <p id="attempt-hint" className="hint">{attemptBlockedReason}</p>
+            )}
+            <button
+              type="button"
+              className="primary btn-block"
+              onClick={beginAttempt}
+              disabled={Boolean(attemptTimer)}
+              aria-describedby={attemptError ? 'attempt-error' : attemptBlockedReason ? 'attempt-hint' : undefined}
+            >
+              Start timed attempt
+            </button>
+            {attemptError && (
+              <p id="attempt-error" className="status-message error" role="alert">
+                {attemptError}
+              </p>
+            )}
+          </div>
         </section>
       )}
 

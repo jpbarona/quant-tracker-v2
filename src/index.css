@@ -253,6 +253,37 @@ body::before {
   font-size: 1.05rem;
 }
 
+.card-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.card-stack__header {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.card-stack__header h3 {
+  margin: 0;
+}
+
+.card-stack .section-label,
+.card-stack__header .section-label {
+  margin: 0;
+}
+
+.card-stack .input-label,
+.card-stack .notice,
+.card-stack .hint,
+.card-stack .status-message,
+.card-stack .checkbox {
+  margin: 0;
+}
+
+.link-btn--block {
+  width: 100%;
+}
+
 .section-label {
   margin: 0 0 0.5rem;
   font-size: 0.72rem;
@@ -506,7 +537,6 @@ button:disabled {
 
 .btn-block {
   width: 100%;
-  margin-top: 0.35rem;
 }
 
 .action-row {

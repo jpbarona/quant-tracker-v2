@@ -7,6 +7,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { TodayPage } from './pages/TodayPage'
 import { TopicsPage } from './pages/TopicsPage'
 import { getTodaySummary, useAppStore, useTodayDate } from './state/AppStore'
+import { titleCaseLabel } from './lib/labels'
 
 type Tab = 'today' | 'topics' | 'reviews' | 'calendar' | 'settings'
 
@@ -91,7 +92,7 @@ function App() {
     }
     const summary = getTodaySummary(state, today)
     return {
-      phase: summary.phase.replace(/_/g, ' '),
+      phase: titleCaseLabel(summary.phase),
       daysToTarget: summary.daysToTarget,
       targetDate: state.settings.targetDate,
     }
