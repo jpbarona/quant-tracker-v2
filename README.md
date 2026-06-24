@@ -52,7 +52,7 @@ VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 ```
 
-Production builds always fail if Supabase env vars are missing, and deployed production app boot refuses local-storage fallback when Supabase is unavailable.
+Production builds emit a warning if Supabase env vars are missing, and deployed production app boot refuses local-storage fallback when Supabase is unavailable.
 
 Optional manual deploy:
 

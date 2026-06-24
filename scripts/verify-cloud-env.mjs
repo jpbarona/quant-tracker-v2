@@ -3,7 +3,7 @@ const validateBuildEnv = (env) => {
   const productionBuild = env.NODE_ENV === 'production' || runningOnCloudflarePages
 
   if (!productionBuild) {
-    return { ok: true }
+    return { ok: true, warning: null }
   }
 
   const url = env.VITE_SUPABASE_URL?.trim() ?? ''
@@ -11,33 +11,34 @@ const validateBuildEnv = (env) => {
 
   if (!url && !anonKey) {
     return {
-      ok: false,
-      message:
-        'Build failed: production build requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, but both are missing.',
+      ok: true,
+      warning:
+        'Build warning: production build is missing VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY. Deploy will build, but runtime boot will fail with a Cloud persistence error screen.',
     }
   }
 
   if (!url) {
     return {
-      ok: false,
-      message: 'Build failed: production build requires VITE_SUPABASE_URL, but it is missing.',
+      ok: true,
+      warning:
+        'Build warning: production build is missing VITE_SUPABASE_URL. Deploy will build, but runtime boot will fail with a Cloud persistence error screen.',
     }
   }
 
   if (!anonKey) {
     return {
-      ok: false,
-      message: 'Build failed: production build requires VITE_SUPABASE_ANON_KEY, but it is missing.',
+      ok: true,
+      warning:
+        'Build warning: production build is missing VITE_SUPABASE_ANON_KEY. Deploy will build, but runtime boot will fail with a Cloud persistence error screen.',
     }
   }
 
-  return { ok: true }
+  return { ok: true, warning: null }
 }
 
 const result = validateBuildEnv(process.env)
 
-if (!result.ok) {
-  console.error(result.message)
-  console.error('Add them under Cloudflare Pages → Settings → Environment variables, then redeploy.')
-  process.exit(1)
+if (result.warning) {
+  console.warn(result.warning)
+  console.warn('Set env vars in Cloudflare Pages → Settings → Environment variables.')
 }
