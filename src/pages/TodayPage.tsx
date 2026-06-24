@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DAY_PROTOCOLS, TARGET_DATE } from '../constants'
-import { getAttemptStartError, isDifficulty, validateAttemptStart } from '../domain/attemptStart'
+import {
+  getAttemptStartError,
+  isDifficulty,
+  normalizeAttemptSourceUrl,
+  validateAttemptStart,
+} from '../domain/attemptStart'
 import { getMentalMathSecondsForDayType } from '../domain/dailyPlan'
 import { validateMentalMathLog, type MentalMathLogInput } from '../domain/mentalMathSession'
 import { groupPendingReviews, type PendingReviewEntry } from '../domain/pendingReviews'
@@ -119,6 +124,8 @@ export const TodayPage = () => {
   const [attemptError, setAttemptError] = useState<string | null>(null)
   const [mentalMathError, setMentalMathError] = useState<string | null>(null)
   const [postmortemError, setPostmortemError] = useState<string | null>(null)
+  const [postmortemSaveState, setPostmortemSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
+  const [attemptSavedMessage, setAttemptSavedMessage] = useState<string | null>(null)
 
   const dayType = summary.dayType
   const dayProtocol = DAY_PROTOCOLS[dayType]
@@ -275,7 +282,18 @@ export const TodayPage = () => {
 
   useEffect(() => {
     setPostmortemError(null)
+    setPostmortemSaveState('idle')
   }, [firstTryCorrect, usedSolution, divergence, cueMissed, topicId])
+
+  useEffect(() => {
+    setAttemptSavedMessage(null)
+  }, [attemptMode, duplicateAcknowledged, topicId, difficulty])
+
+  useEffect(() => {
+    if (urlInput.trim().length > 0) {
+      setAttemptSavedMessage(null)
+    }
+  }, [urlInput])
 
   const handleSaveReadiness = () => {
     setReadinessSaveState('saving')
@@ -384,6 +402,7 @@ export const TodayPage = () => {
       return
     }
     setAttemptError(null)
+    const sourceUrl = normalizeAttemptSourceUrl(attemptStartInput.sourceUrl)
     const now = nowMs()
     setAttemptTimer({
       startedAtMs: now,
@@ -393,7 +412,7 @@ export const TodayPage = () => {
       pausedSeconds: 0,
       pauseStartedAtMs: null,
       mode: attemptMode,
-      sourceUrl: trimmedUrl,
+      sourceUrl,
       topicId: attemptMode === 'mixed' ? null : topicId,
       difficulty,
       reviewSequenceId: attemptMode === 'review' ? dueReview?.id ?? null : null,
@@ -456,44 +475,48 @@ export const TodayPage = () => {
     }
   }
 
-  const submitPostmortem = () => {
-    if (!postmortem) {
+  const submitPostmortem = async () => {
+    if (!postmortem || postmortemSaveState === 'saving') {
       return
     }
     const actualTopicId =
       postmortem.timer.mode === 'mixed' && !topicId ? null : postmortem.timer.topicId
+    setPostmortemSaveState('saving')
+    setPostmortemError(null)
     try {
-      saveAttempt({
-      date: today,
-      sourceUrl: postmortem.timer.sourceUrl,
-      mode: postmortem.timer.mode,
-      reviewSequenceId: postmortem.timer.reviewSequenceId,
-      topicId: actualTopicId,
-      difficulty: postmortem.timer.difficulty,
-      dayType,
-      phase: summary.phase,
-      startedAt: postmortem.timer.startedAtIso,
-      completedAt: postmortem.completedAtIso,
-      scheduledSeconds: postmortem.timer.scheduledSeconds,
-      elapsedSeconds: postmortem.elapsedSeconds,
-      pausedSeconds: postmortem.pausedSeconds,
-      timerExpired: postmortem.timerExpired,
-      abandoned: postmortem.abandoned,
-      firstTryCorrect,
-      usedSolution,
-      divergence,
-      cueMissed: cueMissed.trim(),
+      await saveAttempt({
+        date: today,
+        sourceUrl: postmortem.timer.sourceUrl,
+        mode: postmortem.timer.mode,
+        reviewSequenceId: postmortem.timer.reviewSequenceId,
+        topicId: actualTopicId,
+        difficulty: postmortem.timer.difficulty,
+        dayType,
+        phase: summary.phase,
+        startedAt: postmortem.timer.startedAtIso,
+        completedAt: postmortem.completedAtIso,
+        scheduledSeconds: postmortem.timer.scheduledSeconds,
+        elapsedSeconds: postmortem.elapsedSeconds,
+        pausedSeconds: postmortem.pausedSeconds,
+        timerExpired: postmortem.timerExpired,
+        abandoned: postmortem.abandoned,
+        firstTryCorrect,
+        usedSolution,
+        divergence,
+        cueMissed: cueMissed.trim(),
       })
       setPostmortem(null)
-      setPostmortemError(null)
       setUrlInput('')
       setDuplicateAcknowledged(false)
       setFirstTryCorrect(true)
       setUsedSolution(false)
       setDivergence('no_divergence')
       setCueMissed('')
+      setAttemptSavedMessage('Attempt saved.')
+      setPostmortemSaveState('idle')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save attempt.'
+      setPostmortemSaveState('error')
       setPostmortemError(message)
     }
   }
@@ -747,6 +770,11 @@ export const TodayPage = () => {
             >
               Start timed attempt
             </button>
+            {attemptSavedMessage && (
+              <p className="status-message success" role="status">
+                {attemptSavedMessage}
+              </p>
+            )}
             {attemptError && (
               <p id="attempt-error" className="status-message error" role="alert">
                 {attemptError}
@@ -831,10 +859,16 @@ export const TodayPage = () => {
               maxLength={220}
             />
           </label>
-          <button type="button" className="primary btn-block" onClick={submitPostmortem}>
-            Save attempt
-          </button>
-          {postmortemError && (
+            <button
+              type="button"
+              className="primary btn-block"
+              onClick={() => void submitPostmortem()}
+              disabled={postmortemSaveState === 'saving'}
+              aria-busy={postmortemSaveState === 'saving'}
+            >
+              {postmortemSaveState === 'saving' ? 'Saving attempt...' : 'Save attempt'}
+            </button>
+            {postmortemError && (
             <p className="status-message error" role="alert">
               {postmortemError}
             </p>

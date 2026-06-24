@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { buildDailyQuestionPlan } from '../domain/dailyPlan'
+import { normalizeAttemptSourceUrl } from '../domain/attemptStart'
 import { getPhaseForDate } from '../domain/phases'
 import { evaluateTopicPromotion, isQualifyingSuccess } from '../domain/progression'
 import { dueDateForReviewStep, forwardToNextEligibleDate } from '../domain/reviews'
@@ -208,7 +209,7 @@ interface AppStoreContextValue {
     startedAt: string
     completedAt: string
   }) => void
-  saveAttempt: (input: AttemptInput) => void
+  saveAttempt: (input: AttemptInput) => Promise<void>
   markReviewDone: (sequenceId: string, dateIso: string) => void
   postponeReview: (sequenceId: string, dateIso: string) => void
   addTopic: (name: string) => void
@@ -359,13 +360,15 @@ export const AppStoreProvider = ({ children }: { children: ReactNode }) => {
   )
 
   const saveAttempt = useCallback(
-    (input: AttemptInput) => {
+    async (input: AttemptInput): Promise<void> => {
       const current = mustState(store.appState)
       const nowIso = new Date().toISOString()
-      const parsedQuestionLabel = parseQuestionLabel(input.sourceUrl)
+      const sourceUrl = normalizeAttemptSourceUrl(input.sourceUrl)
+      const parsedQuestionLabel = parseQuestionLabel(sourceUrl)
       const attempt: Attempt = {
         id: createId('attempt'),
         ...input,
+        sourceUrl,
         parsedQuestionLabel,
         topicLabelSnapshot: topicNameById(current.topics, input.topicId),
         qualifyingSuccess: isQualifyingSuccess(input),
@@ -482,9 +485,9 @@ export const AppStoreProvider = ({ children }: { children: ReactNode }) => {
         })
       }
 
-      applyState(buildAchievementsForStreak(nextState, attempt.date))
+      await persistState(buildAchievementsForStreak(nextState, attempt.date))
     },
-    [applyState, store.appState],
+    [persistState, store.appState],
   )
 
   const markReviewDone = useCallback(

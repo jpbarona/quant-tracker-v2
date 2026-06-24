@@ -539,6 +539,10 @@ button:disabled {
   width: 100%;
 }
 
+.input-label + .btn-block {
+  margin-top: 0.6rem;
+}
+
 .action-row {
   display: flex;
   flex-direction: column;
