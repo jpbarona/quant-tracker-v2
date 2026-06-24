@@ -215,23 +215,62 @@ interface AppStoreContextValue {
 
 const AppStoreContext = createContext<AppStoreContextValue | null>(null)
 
-const useRepository = (): AppRepository => {
-  return useMemo(() => createRepository(), [])
+const useRepositoryInit = (): { ok: true; repository: AppRepository } | { ok: false; message: string } => {
+  return useMemo(() => {
+    try {
+      return { ok: true as const, repository: createRepository() }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Failed to initialize persistence.',
+      }
+    }
+  }, [])
 }
 
+const BootstrapError = ({ message }: { message: string }) => (
+  <div className="bootstrap-error" role="alert">
+    <h1>Could not start tracker</h1>
+    <p>{message}</p>
+  </div>
+)
+
 export const AppStoreProvider = ({ children }: { children: ReactNode }) => {
-  const repository = useRepository()
+  const repositoryInit = useRepositoryInit()
   const [store, dispatch] = useReducer(reducer, { appState: null })
   const [loading, setLoading] = useState(true)
-  const [persistStatus] = useState<PersistStatus>(repository.status)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [persistStatus] = useState<PersistStatus>(() =>
+    repositoryInit.ok ? repositoryInit.repository.status : { mode: 'local', cloudAvailable: false },
+  )
 
   useEffect(() => {
-    void (async () => {
-      const loaded = await repository.getState()
-      dispatch({ type: 'hydrate', payload: loaded })
+    if (!repositoryInit.ok) {
       setLoading(false)
+      return
+    }
+
+    void (async () => {
+      try {
+        const loaded = await repositoryInit.repository.getState()
+        dispatch({ type: 'hydrate', payload: loaded })
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : 'Failed to load app state from persistence.')
+      } finally {
+        setLoading(false)
+      }
     })()
-  }, [repository])
+  }, [repositoryInit])
+
+  if (!repositoryInit.ok) {
+    return <BootstrapError message={repositoryInit.message} />
+  }
+
+  if (loadError) {
+    return <BootstrapError message={loadError} />
+  }
+
+  const repository = repositoryInit.repository
 
   const applyState = useCallback(
     (next: AppState) => {

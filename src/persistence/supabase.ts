@@ -1,11 +1,18 @@
 import { createClient } from '@supabase/supabase-js'
 import type { AppState } from '../types'
 import type { AppRepository } from './repository'
+import {
+  throwCloudFetchError,
+  throwCloudPayloadValidationError,
+  throwCloudSaveError,
+  throwCloudSeedError,
+} from './supabaseErrors'
 
 interface SupabaseRepositoryOptions {
   fallback: () => AppRepository
   defaultState: () => AppState
   validateState: (candidate: unknown) => AppState
+  allowLocalFallback: boolean
 }
 
 interface AppStateRow {
@@ -22,7 +29,7 @@ export const createSupabaseRepository = (
   options: SupabaseRepositoryOptions,
 ): AppRepository => {
   const client = createClient(url, anonKey)
-  const fallback = options.fallback()
+  const fallback = options.allowLocalFallback ? options.fallback() : null
 
   const getState = async (): Promise<AppState> => {
     const response = await client
@@ -39,18 +46,28 @@ export const createSupabaseRepository = (
           payload: seeded,
         })
         if (insert.error) {
-          return fallback.getState()
+          if (options.allowLocalFallback && fallback) {
+            return fallback.getState()
+          }
+          return throwCloudSeedError(insert.error)
         }
         return seeded
       }
-      return fallback.getState()
+      if (options.allowLocalFallback && fallback) {
+        return fallback.getState()
+      }
+      return throwCloudFetchError(response.error)
     }
 
     try {
       const row = response.data as AppStateRow
       return options.validateState(row.payload)
-    } catch {
-      return fallback.getState()
+    } catch (error) {
+      if (options.allowLocalFallback && fallback) {
+        return fallback.getState()
+      }
+      const message = error instanceof Error ? error.message : 'Unknown validation error'
+      return throwCloudPayloadValidationError(message)
     }
   }
 
@@ -63,7 +80,11 @@ export const createSupabaseRepository = (
     })
 
     if (upsert.error) {
-      await fallback.saveState(state)
+      if (options.allowLocalFallback && fallback) {
+        await fallback.saveState(state)
+        return
+      }
+      return throwCloudSaveError(upsert.error)
     }
   }
 

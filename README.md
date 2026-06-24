@@ -33,7 +33,7 @@ VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 ```
 
-Without these values, the app runs in local-storage fallback mode.
+Without these values, the app runs in local-storage fallback mode during local development.
 
 ## Supabase setup
 
@@ -45,11 +45,18 @@ Without these values, the app runs in local-storage fallback mode.
 
 - Build command: `npm run build`
 - Build output directory: `dist`
-- Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Pages environment variables.
+- Set these environment variables for **Production** (and Preview if used):
+
+```bash
+VITE_REQUIRE_CLOUD=true
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+```
+
+`VITE_REQUIRE_CLOUD=true` makes the build fail if Supabase env vars are missing, and makes the deployed app refuse to start without a working Supabase connection (no local-storage fallback). Do **not** set `VITE_REQUIRE_CLOUD` for local prototyping.
 
 Optional manual deploy:
 
 ```bash
 npx wrangler pages deploy dist --project-name quant-tracker-v2
 ```
-# quant-tracker-v2
