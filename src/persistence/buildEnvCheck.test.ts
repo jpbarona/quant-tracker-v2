@@ -16,6 +16,15 @@ describe('validateBuildEnv', () => {
     })
   })
 
+  it('fails on Cloudflare Pages when Supabase vars are missing', () => {
+    const result = validateBuildEnv({ CF_PAGES: '1' })
+    expect(result).toEqual({
+      ok: false,
+      message:
+        'Build failed: production build requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, but both are missing.',
+    })
+  })
+
   it('fails in production when url is missing', () => {
     const result = validateBuildEnv({
       NODE_ENV: 'production',

@@ -5,12 +5,16 @@ export interface BuildEnvCheckResult {
 
 export interface BuildEnv {
   NODE_ENV?: string
+  CF_PAGES?: string
   VITE_SUPABASE_URL?: string
   VITE_SUPABASE_ANON_KEY?: string
 }
 
 export const validateBuildEnv = (env: BuildEnv): BuildEnvCheckResult => {
-  if (env.NODE_ENV !== 'production') {
+  const runningOnCloudflarePages = env.CF_PAGES === '1'
+  const productionBuild = env.NODE_ENV === 'production' || runningOnCloudflarePages
+
+  if (!productionBuild) {
     return { ok: true }
   }
 
