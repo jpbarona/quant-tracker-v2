@@ -2,10 +2,16 @@ import { DEFAULT_SETTINGS, DEFAULT_TOPICS } from '../constants'
 import { createId } from '../lib/id'
 import type { AppState, PersistStatus, Topic } from '../types'
 import { assertCloudEnvConfigured, isCloudRequired } from './cloudConfig'
+import {
+  getLocalDummySessionId,
+  isLocalDummySeedEnabled,
+  shouldReseedLocalDummyState,
+} from './localSeedConfig'
 import { appStateSchema } from './schemas'
 import { createSupabaseRepository } from './supabase'
 
 const LOCAL_STORAGE_KEY = 'quant-tracker-v2-state'
+const LOCAL_DUMMY_SESSION_KEY = 'quant-tracker-v2-local-dummy-session'
 
 const defaultState = (): AppState => {
   const nowIso = new Date().toISOString()
@@ -38,6 +44,17 @@ const parseOrThrow = (candidate: unknown): AppState => {
   return parsed.data
 }
 
+const seedLocalDummyState = async (): Promise<AppState> => {
+  const { createLocalDummyAppState } = await import('./fixtures/localDummyAppState')
+  const seed = createLocalDummyAppState()
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(seed))
+  const sessionId = getLocalDummySessionId()
+  if (sessionId) {
+    localStorage.setItem(LOCAL_DUMMY_SESSION_KEY, sessionId)
+  }
+  return seed
+}
+
 export interface AppRepository {
   getState: () => Promise<AppState>
   saveState: (state: AppState) => Promise<void>
@@ -48,13 +65,23 @@ export const createLocalRepository = (): AppRepository => {
   const getState = async (): Promise<AppState> => {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY)
     if (!raw) {
+      if (isLocalDummySeedEnabled()) {
+        return seedLocalDummyState()
+      }
       const seed = defaultState()
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(seed))
       return seed
     }
 
     const parsedJson: unknown = JSON.parse(raw)
-    return parseOrThrow(parsedJson)
+    const state = parseOrThrow(parsedJson)
+    const storedSessionId = localStorage.getItem(LOCAL_DUMMY_SESSION_KEY)
+
+    if (shouldReseedLocalDummyState(state, storedSessionId)) {
+      return seedLocalDummyState()
+    }
+
+    return state
   }
 
   const saveState = async (state: AppState): Promise<void> => {
