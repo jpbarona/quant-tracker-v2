@@ -1,3 +1,4 @@
+import { assertHttpUrl } from '../lib/url'
 import { parseQuestionLabel } from './urlParser'
 import { DIFFICULTIES, type Difficulty } from '../types'
 
@@ -23,17 +24,21 @@ export const isAttemptMode = (value: string): value is AttemptMode => {
   return value === 'new' || value === 'review' || value === 'mixed'
 }
 
+export const normalizeAttemptSourceUrl = (sourceUrl: string): string => {
+  const trimmed = sourceUrl.trim()
+  if (trimmed.length === 0) {
+    throw new Error('Enter a QuantQuestions URL before starting.')
+  }
+  return assertHttpUrl(trimmed, 'Question URL')
+}
+
 export const validateAttemptStart = (input: AttemptStartInput): void => {
   if (input.attemptAlreadyRunning) {
     throw new Error('A timed attempt is already running.')
   }
 
-  const trimmedUrl = input.sourceUrl.trim()
-  if (trimmedUrl.length === 0) {
-    throw new Error('Enter a QuantQuestions URL before starting.')
-  }
-
-  parseQuestionLabel(trimmedUrl)
+  const sourceUrl = normalizeAttemptSourceUrl(input.sourceUrl)
+  parseQuestionLabel(sourceUrl)
 
   if (!isAttemptMode(input.mode)) {
     throw new Error('Attempt mode is invalid.')
