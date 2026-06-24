@@ -1,6 +1,7 @@
 import { DEFAULT_SETTINGS, DEFAULT_TOPICS } from '../constants'
 import { createId } from '../lib/id'
 import type { AppState, PersistStatus, Topic } from '../types'
+import { assertCloudEnvConfigured, isCloudRequired } from './cloudConfig'
 import { appStateSchema } from './schemas'
 import { createSupabaseRepository } from './supabase'
 
@@ -73,8 +74,20 @@ export const createLocalRepository = (): AppRepository => {
 }
 
 export const createRepository = (): AppRepository => {
-  const url = import.meta.env.VITE_SUPABASE_URL
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+  const cloudRequired = isCloudRequired()
+
+  if (cloudRequired) {
+    const { url, anonKey } = assertCloudEnvConfigured()
+    return createSupabaseRepository(url, anonKey, {
+      fallback: createLocalRepository,
+      defaultState,
+      validateState: parseOrThrow,
+      allowLocalFallback: false,
+    })
+  }
+
+  const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? ''
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? ''
 
   if (!url || !anonKey) {
     return createLocalRepository()
@@ -84,5 +97,6 @@ export const createRepository = (): AppRepository => {
     fallback: createLocalRepository,
     defaultState,
     validateState: parseOrThrow,
+    allowLocalFallback: true,
   })
 }

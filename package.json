@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/verify-cloud-env.mjs && tsc -b && vite build",
+    "test:cloudflare-build": "node scripts/test-cloudflare-build.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -3,7 +3,7 @@ import { DAY_PROTOCOLS, TARGET_DATE } from '../constants'
 import { getAttemptStartError, isDifficulty, validateAttemptStart } from '../domain/attemptStart'
 import { getMentalMathSecondsForDayType } from '../domain/dailyPlan'
 import { validateMentalMathLog, type MentalMathLogInput } from '../domain/mentalMathSession'
-import { groupPendingReviews } from '../domain/pendingReviews'
+import { groupPendingReviews, type PendingReviewEntry } from '../domain/pendingReviews'
 import { safeTitleCaseLabel } from '../lib/labels'
 import {
   computeActiveElapsedSeconds,
@@ -30,6 +30,33 @@ const divergenceOptions: Array<{ key: DivergenceReason; label: string }> = [
 ]
 
 const nowMs = (): number => new Date().getTime()
+
+interface PendingReviewItemProps {
+  entry: PendingReviewEntry
+  showDueDate: boolean
+  onDone: (sequenceId: string) => void
+  onPostpone: (sequenceId: string) => void
+}
+
+const PendingReviewItem = ({ entry, showDueDate, onDone, onPostpone }: PendingReviewItemProps) => (
+  <div className="list-item">
+    <a href={entry.sequence.sourceUrl} target="_blank" rel="noreferrer" className="link-btn">
+      {entry.sequence.parsedQuestionLabel}
+    </a>
+    <span className="muted">
+      {entry.sequence.topicLabelSnapshot} · {entry.sequence.originalDifficulty}
+      {showDueDate ? ` · due ${entry.effectiveDueDate}` : ''}
+    </span>
+    <div className="action-row list-item__actions">
+      <button type="button" className="secondary" onClick={() => onDone(entry.sequence.id)}>
+        Done
+      </button>
+      <button type="button" className="secondary" onClick={() => onPostpone(entry.sequence.id)}>
+        Move to tomorrow
+      </button>
+    </div>
+  </div>
+)
 
 interface MentalTimer {
   startedAtMs: number
@@ -63,7 +90,7 @@ interface PendingPostmortem {
 
 export const TodayPage = () => {
   const today = useTodayDate()
-  const { state, setDayType, setReadiness, logMentalMath, saveAttempt } = useAppStore()
+  const { state, setDayType, setReadiness, logMentalMath, saveAttempt, markReviewDone, postponeReview } = useAppStore()
   if (!state) {
     throw new Error('State unavailable')
   }
@@ -596,14 +623,13 @@ export const TodayPage = () => {
               <p className="empty-state">You&apos;re caught up — no overdue reviews.</p>
             ) : (
               overdueReviews.map((entry) => (
-                <div key={entry.sequence.id} className="list-item">
-                  <a href={entry.sequence.sourceUrl} target="_blank" rel="noreferrer" className="link-btn">
-                    {entry.sequence.parsedQuestionLabel}
-                  </a>
-                  <span className="muted">
-                    {entry.sequence.topicLabelSnapshot} · {entry.sequence.originalDifficulty} · due {entry.effectiveDueDate}
-                  </span>
-                </div>
+                <PendingReviewItem
+                  key={entry.sequence.id}
+                  entry={entry}
+                  showDueDate
+                  onDone={(sequenceId) => markReviewDone(sequenceId, today)}
+                  onPostpone={(sequenceId) => postponeReview(sequenceId, today)}
+                />
               ))
             )}
 
@@ -612,14 +638,13 @@ export const TodayPage = () => {
               <p className="empty-state">None due today.</p>
             ) : (
               dueTodayReviews.map((entry) => (
-                <div key={entry.sequence.id} className="list-item">
-                  <a href={entry.sequence.sourceUrl} target="_blank" rel="noreferrer" className="link-btn">
-                    {entry.sequence.parsedQuestionLabel}
-                  </a>
-                  <span className="muted">
-                    {entry.sequence.topicLabelSnapshot} · {entry.sequence.originalDifficulty}
-                  </span>
-                </div>
+                <PendingReviewItem
+                  key={entry.sequence.id}
+                  entry={entry}
+                  showDueDate={false}
+                  onDone={(sequenceId) => markReviewDone(sequenceId, today)}
+                  onPostpone={(sequenceId) => postponeReview(sequenceId, today)}
+                />
               ))
             )}
           </div>

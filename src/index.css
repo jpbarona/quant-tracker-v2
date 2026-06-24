@@ -726,6 +726,10 @@ input::placeholder {
   padding-top: 0.2rem;
 }
 
+.list-item__actions {
+  margin-top: 0.35rem;
+}
+
 .review-step {
   display: inline-flex;
   align-items: center;
@@ -945,6 +949,31 @@ input::placeholder {
   gap: 1rem;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.bootstrap-error {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  max-width: 36rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.bootstrap-error h1 {
+  font-size: 1.25rem;
+  color: var(--text);
+}
+
+.bootstrap-error p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  word-break: break-word;
 }
 
 .spinner {
