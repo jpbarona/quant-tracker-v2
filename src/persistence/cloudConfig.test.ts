@@ -1,27 +1,7 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { assertCloudEnvConfigured, CloudPersistenceError, isCloudRequired } from './cloudConfig'
-
-describe('isCloudRequired', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
-  it('is false when VITE_REQUIRE_CLOUD is unset', () => {
-    vi.stubEnv('VITE_REQUIRE_CLOUD', '')
-    expect(isCloudRequired()).toBe(false)
-  })
-
-  it('is true when VITE_REQUIRE_CLOUD is true', () => {
-    vi.stubEnv('VITE_REQUIRE_CLOUD', 'true')
-    expect(isCloudRequired()).toBe(true)
-  })
-})
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { assertCloudEnvConfigured, CloudPersistenceError } from './cloudConfig'
 
 describe('assertCloudEnvConfigured', () => {
-  beforeEach(() => {
-    vi.stubEnv('VITE_REQUIRE_CLOUD', 'true')
-  })
-
   afterEach(() => {
     vi.unstubAllEnvs()
   })

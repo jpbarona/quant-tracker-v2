@@ -1,4 +1,4 @@
-export const isCloudRequired = (): boolean => import.meta.env.VITE_REQUIRE_CLOUD === 'true'
+export const isCloudRequired = (): boolean => import.meta.env.PROD
 
 export class CloudPersistenceError extends Error {
   constructor(message: string) {
@@ -13,17 +13,17 @@ export const assertCloudEnvConfigured = (): { url: string; anonKey: string } => 
 
   if (!url && !anonKey) {
     throw new CloudPersistenceError(
-      'Cloud persistence is required (VITE_REQUIRE_CLOUD=true) but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are both missing. Set them in Cloudflare Pages environment variables and redeploy.',
+      'Cloud persistence is required in production but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are both missing. Set them in Cloudflare Pages environment variables and redeploy.',
     )
   }
   if (!url) {
     throw new CloudPersistenceError(
-      'Cloud persistence is required (VITE_REQUIRE_CLOUD=true) but VITE_SUPABASE_URL is missing. Set it in Cloudflare Pages environment variables and redeploy.',
+      'Cloud persistence is required in production but VITE_SUPABASE_URL is missing. Set it in Cloudflare Pages environment variables and redeploy.',
     )
   }
   if (!anonKey) {
     throw new CloudPersistenceError(
-      'Cloud persistence is required (VITE_REQUIRE_CLOUD=true) but VITE_SUPABASE_ANON_KEY is missing. Set it in Cloudflare Pages environment variables and redeploy.',
+      'Cloud persistence is required in production but VITE_SUPABASE_ANON_KEY is missing. Set it in Cloudflare Pages environment variables and redeploy.',
     )
   }
 

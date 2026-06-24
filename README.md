@@ -48,12 +48,11 @@ Without these values, the app runs in local-storage fallback mode during local d
 - Set these environment variables for **Production** (and Preview if used):
 
 ```bash
-VITE_REQUIRE_CLOUD=true
 VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 ```
 
-`VITE_REQUIRE_CLOUD=true` makes the build fail if Supabase env vars are missing, and makes the deployed app refuse to start without a working Supabase connection (no local-storage fallback). Do **not** set `VITE_REQUIRE_CLOUD` for local prototyping.
+Production builds always fail if Supabase env vars are missing, and deployed production app boot refuses local-storage fallback when Supabase is unavailable.
 
 Optional manual deploy:
 
