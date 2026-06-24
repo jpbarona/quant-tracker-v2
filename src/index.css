@@ -726,6 +726,10 @@ input::placeholder {
   padding-top: 0.2rem;
 }
 
+.list-item__actions {
+  margin-top: 0.35rem;
+}
+
 .review-step {
   display: inline-flex;
   align-items: center;

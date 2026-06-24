@@ -12,6 +12,7 @@ import { buildDailyQuestionPlan } from '../domain/dailyPlan'
 import { getPhaseForDate } from '../domain/phases'
 import { evaluateTopicPromotion, isQualifyingSuccess } from '../domain/progression'
 import { dueDateForReviewStep, forwardToNextEligibleDate } from '../domain/reviews'
+import { advanceReviewAfterSuccess, postponeReviewToTomorrow } from '../domain/reviewActions'
 import { parseQuestionLabel } from '../domain/urlParser'
 import { isoDay, plusDaysIso } from '../lib/date'
 import { createId } from '../lib/id'
@@ -208,6 +209,8 @@ interface AppStoreContextValue {
     completedAt: string
   }) => void
   saveAttempt: (input: AttemptInput) => void
+  markReviewDone: (sequenceId: string, dateIso: string) => void
+  postponeReview: (sequenceId: string, dateIso: string) => void
   addTopic: (name: string) => void
   reorderTopics: (topicIdsInOrder: string[]) => void
   updateSettings: (settings: AppSettings) => void
@@ -484,6 +487,64 @@ export const AppStoreProvider = ({ children }: { children: ReactNode }) => {
     [applyState, store.appState],
   )
 
+  const markReviewDone = useCallback(
+    (sequenceId: string, dateIso: string) => {
+      const current = mustState(store.appState)
+      const nowIso = new Date().toISOString()
+      const existing = current.reviewSequences.find((entry) => entry.id === sequenceId)
+      if (!existing || existing.status !== 'active') {
+        throw new Error('Review sequence not found or inactive')
+      }
+
+      const updated = advanceReviewAfterSuccess(existing, dateIso, current.dayLogs, nowIso)
+      let nextState: AppState = {
+        ...current,
+        reviewSequences: current.reviewSequences.map((entry) =>
+          entry.id === sequenceId ? updated : entry,
+        ),
+      }
+
+      if (updated.status === 'completed') {
+        nextState = {
+          ...nextState,
+          achievements: [
+            ...nextState.achievements,
+            {
+              id: createId('achievement'),
+              date: dateIso,
+              type: 'review_sequence_completed',
+              title: 'Review sequence completed',
+              context: updated.parsedQuestionLabel,
+            },
+          ],
+        }
+      }
+
+      applyState(nextState)
+    },
+    [applyState, store.appState],
+  )
+
+  const postponeReview = useCallback(
+    (sequenceId: string, dateIso: string) => {
+      const current = mustState(store.appState)
+      const nowIso = new Date().toISOString()
+      const existing = current.reviewSequences.find((entry) => entry.id === sequenceId)
+      if (!existing || existing.status !== 'active') {
+        throw new Error('Review sequence not found or inactive')
+      }
+
+      const updated = postponeReviewToTomorrow(existing, dateIso, current.dayLogs, nowIso)
+      applyState({
+        ...current,
+        reviewSequences: current.reviewSequences.map((entry) =>
+          entry.id === sequenceId ? updated : entry,
+        ),
+      })
+    },
+    [applyState, store.appState],
+  )
+
   const addTopic = useCallback(
     (name: string) => {
       const trimmed = name.trim()
@@ -559,6 +620,8 @@ export const AppStoreProvider = ({ children }: { children: ReactNode }) => {
       setReadiness,
       logMentalMath,
       saveAttempt,
+      markReviewDone,
+      postponeReview,
       addTopic,
       reorderTopics,
       updateSettings,
@@ -569,6 +632,8 @@ export const AppStoreProvider = ({ children }: { children: ReactNode }) => {
       persistStatus,
       reorderTopics,
       saveAttempt,
+      markReviewDone,
+      postponeReview,
       setDayType,
       setReadiness,
       store.appState,
